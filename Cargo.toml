@@ -1,0 +1,13 @@
+[package]
+name = "alarms"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = "0.31"
+rodio = { version = "0.19", default-features = false }
+chrono = "0.4"
+
+[profile.release]
+lto = true
+strip = true
