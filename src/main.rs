@@ -349,12 +349,12 @@ fn exe_dir() -> PathBuf {
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Alarms")
+            .with_title("ralarm")
             .with_inner_size([480.0, 540.0]),
         ..Default::default()
     };
     eframe::run_native(
-        "Alarms",
+        "ralarm",
         options,
         Box::new(|cc| Ok(Box::new(AlarmApp::new(cc)))),
     )
