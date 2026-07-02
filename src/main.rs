@@ -32,9 +32,8 @@ struct AlarmApp {
 
     /// 発火判定に使う内部データ（ファイル由来）。
     alarms: Vec<Alarm>,
-    /// アプリ内エディタの内容。
+    /// アプリ内エディタの内容（変更されたら即自動保存）。
     editor_text: String,
-    dirty: bool,
     last_mtime: Option<SystemTime>,
 
     /// 履歴（log.txt、MRU順）。
@@ -48,8 +47,6 @@ struct AlarmApp {
 
     popups: Vec<Popup>,
     next_popup_id: u64,
-
-    quitting: bool,
 }
 
 impl AlarmApp {
@@ -88,7 +85,6 @@ impl AlarmApp {
             log_path,
             alarms,
             editor_text,
-            dirty: false,
             last_mtime,
             log_lines,
             show_history: false,
@@ -96,28 +92,16 @@ impl AlarmApp {
             last_minute,
             popups: Vec::new(),
             next_popup_id: 0,
-            quitting: false,
         }
     }
 
+    /// エディタの内容を alarms.txt に自動保存。
     fn save_alarms(&mut self) {
         let _ = std::fs::write(&self.alarms_path, &self.editor_text);
         self.alarms = parse_alarms(&self.editor_text);
-        self.dirty = false;
         self.last_mtime = std::fs::metadata(&self.alarms_path)
             .and_then(|m| m.modified())
             .ok();
-    }
-
-    fn reload_alarms(&mut self) {
-        if let Ok(content) = std::fs::read_to_string(&self.alarms_path) {
-            self.editor_text = content.clone();
-            self.alarms = parse_alarms(&content);
-            self.dirty = false;
-            self.last_mtime = std::fs::metadata(&self.alarms_path)
-                .and_then(|m| m.modified())
-                .ok();
-        }
     }
 
     fn save_log(&self) {
@@ -128,8 +112,8 @@ impl AlarmApp {
         let _ = std::fs::write(&self.log_path, s);
     }
 
-    /// アプリ外編集の検知（mtimeポーリング）。発火用データは常に更新、
-    /// エディタは未保存の変更が無いときだけ上書きする。
+    /// アプリ外編集の検知（mtimeポーリング）。自動保存方式なので
+    /// 外部の方が新しければそのままエディタにも反映する。
     fn poll_external_edit(&mut self) {
         let Ok(meta) = std::fs::metadata(&self.alarms_path) else {
             return;
@@ -143,9 +127,7 @@ impl AlarmApp {
         self.last_mtime = Some(mtime);
         if let Ok(content) = std::fs::read_to_string(&self.alarms_path) {
             self.alarms = parse_alarms(&content);
-            if !self.dirty {
-                self.editor_text = content;
-            }
+            self.editor_text = content;
         }
     }
 
@@ -214,7 +196,7 @@ impl AlarmApp {
         }
         self.editor_text.push_str(line);
         self.editor_text.push('\n');
-        self.dirty = true;
+        self.save_alarms();
     }
 
     fn draw_popups(&mut self, ctx: &egui::Context) {
@@ -279,12 +261,6 @@ impl eframe::App for AlarmApp {
         self.poll_external_edit();
         self.tick(ctx);
 
-        // メインウィンドウの × は終了せず最小化（常駐）。
-        if ctx.input(|i| i.viewport().close_requested()) && !self.quitting {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-        }
-
         let now = Local::now();
         let now_hhmm = format!("{:02}{:02}", now.hour(), now.minute());
 
@@ -302,12 +278,6 @@ impl eframe::App for AlarmApp {
             ui.separator();
 
             ui.horizontal(|ui| {
-                if ui.button("保存").clicked() {
-                    self.save_alarms();
-                }
-                if ui.button("再読込").clicked() {
-                    self.reload_alarms();
-                }
                 if ui.button("履歴").clicked() {
                     self.show_history = !self.show_history;
                 }
@@ -317,13 +287,6 @@ impl eframe::App for AlarmApp {
                         title: "テスト".to_string(),
                     };
                     self.fire(ctx, &a, true);
-                }
-                if ui.button("終了").clicked() {
-                    self.quitting = true;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-                if self.dirty {
-                    ui.label(egui::RichText::new("● 未保存").color(egui::Color32::YELLOW));
                 }
             });
 
@@ -339,7 +302,7 @@ impl eframe::App for AlarmApp {
                         .font(egui::TextStyle::Monospace),
                 );
                 if resp.changed() {
-                    self.dirty = true;
+                    self.save_alarms();
                 }
             });
         });
